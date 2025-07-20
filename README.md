@@ -1,6 +1,6 @@
 # MicroAnalytics
 
-# This project is a distributed, microservices-based platform designed to execute scientific computing jobs asynchronously. It allows users to submit Python scripts via a REST API, which are then processed by a high-performance C++ backend, with a message queue handling the communication to ensure scalability and resilience.
+This project is a distributed, microservices-based platform designed to execute scientific computing jobs asynchronously. It allows users to submit Python scripts via a REST API, which are then processed by a high-performance C++ backend, with a message queue handling the communication to ensure scalability and resilience.
 
 Architecture Overview
 The system is decoupled into several distinct services that communicate asynchronously:
