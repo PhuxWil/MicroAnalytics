@@ -1,0 +1,25 @@
+services:
+  # The RabbitMQ message broker service
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  # The API Gateway service
+  api:
+    build:
+      context: .
+      dockerfile: api.Dockerfile
+    ports:
+      - "5000:5000"
+    depends_on:
+      - rabbitmq
+
+  # The Worker service
+  worker:
+    build:
+      context: .
+      dockerfile: worker.Dockerfile
+    depends_on:
+      - rabbitmq
