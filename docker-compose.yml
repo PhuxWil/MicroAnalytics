@@ -1,12 +1,24 @@
+
 services:
-  # The RabbitMQ message broker service
   rabbitmq:
     image: rabbitmq:3-management
     ports:
       - "5672:5672"
       - "15672:15672"
 
-  # The API Gateway service
+  # Add the new database service
+  db:
+    image: postgres:14-alpine
+    restart: always
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=analytics
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+
   api:
     build:
       context: .
@@ -14,12 +26,19 @@ services:
     ports:
       - "5000:5000"
     depends_on:
+      # API now depends on both rabbitmq and the db
       - rabbitmq
+      - db
 
-  # The Worker service
   worker:
     build:
       context: .
       dockerfile: worker.Dockerfile
     depends_on:
+      # Worker also depends on both
       - rabbitmq
+      - db
+
+# Define the persistent volume for the database at the top level
+volumes:
+  postgres_data:
