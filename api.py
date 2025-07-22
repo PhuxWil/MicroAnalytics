@@ -56,12 +56,11 @@ def submit_job():
     if not script_code:
         return jsonify({"error": "No script provided"}), 400
 
-    db_conn = None
-    mq_conn = None
-    try:
-        job_id = str(uuid.uuid4())
+    job_id = str(uuid.uuid4())
 
-        # 1. Insert job into database with 'SUBMITTED' status
+    # --- Database Interaction First ---
+    db_conn = None
+    try:
         db_conn = get_db_connection()
         cur = db_conn.cursor()
         cur.execute(
@@ -69,32 +68,40 @@ def submit_job():
             (job_id, script_code, 'SUBMITTED')
         )
         db_conn.commit()
-        cur.close()
+    except Exception as e:
+        print(f"Database Error: {e}")
+        return jsonify({"error": "Failed to create job in database"}), 500
+    finally:
+        if db_conn:
+            cur.close()
+            db_conn.close()
 
-        # 2. Prepare message for RabbitMQ
-        message = {
-            "job_id": job_id,
-            "script_code": script_code
-        }
-
-        # 3. Publish job to RabbitMQ
+    # --- RabbitMQ Publishing Second ---
+    mq_conn = None
+    try:
         mq_conn = connect_to_rabbitmq()
         channel = mq_conn.channel()
         channel.queue_declare(queue='job_queue', durable=True)
+
+        message_body = f"{job_id}|||{script_code}"
+
         channel.basic_publish(
-            exchange='', routing_key='job_queue',
-            body=json.dumps(message), # Send as a JSON string
+            exchange='',
+            routing_key='job_queue',
+            body=message_body,
             properties=pika.BasicProperties(delivery_mode=2)
         )
-        print(f" [x] Sent job {job_id} to queue")
-        return jsonify({"status": "success", "job_id": job_id}), 202
+        print(f" [x] Successfully sent job {job_id} to queue")
 
     except Exception as e:
-        print(f"Error: {e}")
-        return jsonify({"error": "Failed to submit job"}), 500
+        print(f"RabbitMQ Error: {e}")
+        # Here you might want to update the job status to 'FAILED_TO_PUBLISH'
+        return jsonify({"error": "Job created but failed to send to worker queue"}), 500
     finally:
-        if db_conn: db_conn.close()
-        if mq_conn and mq_conn.is_open: mq_conn.close()
+        if mq_conn and mq_conn.is_open:
+            mq_conn.close()
+
+    return jsonify({"status": "success", "job_id": job_id}), 202
 
 
 @app.route('/api/jobs/<string:job_id>', methods=['GET'])
