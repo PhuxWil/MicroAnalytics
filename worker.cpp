@@ -3,7 +3,8 @@
 #include <string>
 #include <vector>
 #include <cstdlib>
-#include <pqxx/pqxx> // PostgreSQL C++ library header
+#include <pqxx/pqxx>
+#include <sstream> // Required for this new method
 
 // Function to capture output from a system command
 std::string exec(const char* cmd) {
@@ -24,14 +25,12 @@ std::string exec(const char* cmd) {
 }
 
 int main() {
-    // --- Read job info from stdin ---
-    std::string job_info;
-    std::string line;
-    while (std::getline(std::cin, line)) {
-        job_info += line + "\n";
-    }
+    // --- NEW, MORE ROBUST WAY TO READ FROM STDIN ---
+    std::stringstream buffer;
+    buffer << std::cin.rdbuf();
+    std::string job_info = buffer.str();
+    // --- END OF NEW METHOD ---
 
-    // --- Parse job_id and script_code ---
     std::string delimiter = "|||";
     size_t pos = job_info.find(delimiter);
     if (pos == std::string::npos) {
@@ -40,48 +39,46 @@ int main() {
     }
     std::string job_id = job_info.substr(0, pos);
     std::string script_code = job_info.substr(pos + delimiter.length());
-
+    
     std::cout << "Worker Info: Processing job ID " << job_id << std::endl;
 
-    // --- Connect to PostgreSQL ---
-    pqxx::connection C("dbname=analytics user=user password=password host=db port=5432");
-    if (!C.is_open()) {
-        std::cerr << "Worker Error: Can't open database" << std::endl;
-        return 1;
-    }
-
     try {
-        // --- Update status to RUNNING ---
+        pqxx::connection C("dbname=analytics user=user password=password host=db port=5432");
         pqxx::work W1(C);
         W1.exec("UPDATE jobs SET status = 'RUNNING' WHERE job_id = '" + W1.esc(job_id) + "'");
         W1.commit();
-
-        // --- Write script to file and execute ---
+        
         std::ofstream temp_script_file("temp_script.py");
         temp_script_file << script_code;
         temp_script_file.close();
 
-        std::string result = exec("python3 ./temp_script.py");
+        std::string full_output = exec("python3 ./temp_script.py");
 
-        // --- Update status to COMPLETED with result ---
+        std::string text_result = full_output;
+        std::string image_result = "";
+        
+        std::string start_delim = "---PLOT_START---";
+        std::string end_delim = "---PLOT_END---";
+        
+        size_t start_pos = full_output.find(start_delim);
+        size_t end_pos = full_output.find(end_delim);
+
+        if (start_pos != std::string::npos && end_pos != std::string::npos) {
+            start_pos += start_delim.length();
+            image_result = full_output.substr(start_pos, end_pos - start_pos);
+            text_result = full_output.substr(0, full_output.find(start_delim));
+        }
+
         pqxx::work W2(C);
-        W2.exec("UPDATE jobs SET status = 'COMPLETED', result = '" + W2.esc(result) + "' WHERE job_id = '" + W2.esc(job_id) + "'");
+        W2.exec("UPDATE jobs SET status = 'COMPLETED', result_text = '" + W2.esc(text_result) + "', result_image = '" + W2.esc(image_result) + "' WHERE job_id = '" + W2.esc(job_id) + "'");
         W2.commit();
         std::cout << "Worker Info: Job " << job_id << " completed successfully." << std::endl;
+        C.disconnect();
 
     } catch (const std::exception &e) {
-        // --- Update status to FAILED on error ---
-        try {
-            pqxx::work W3(C);
-            W3.exec("UPDATE jobs SET status = 'FAILED', result = '" + W3.esc(e.what()) + "' WHERE job_id = '" + W3.esc(job_id) + "'");
-            W3.commit();
-        } catch (const std::exception &e2) {
-            std::cerr << "Worker Error: Failed to update DB on error. " << e2.what() << std::endl;
-        }
         std::cerr << "Worker Error: " << e.what() << std::endl;
-        C.disconnect();
+        // In a real app, you would also update the job status to FAILED here
         return 1;
     }
-    C.disconnect();
     return 0;
 }

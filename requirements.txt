@@ -2,3 +2,5 @@
 Flask
 Pika
 psycopg2-binary
+numpy
+matplotlib

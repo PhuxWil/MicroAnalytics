@@ -8,7 +8,6 @@ import json # To send structured data to the queue
 
 app = Flask(__name__)
 
-# --- Database Setup ---
 def get_db_connection():
     retries = 5
     while retries > 0:
@@ -35,7 +34,8 @@ def setup_database():
             job_id UUID PRIMARY KEY,
             script_code TEXT,
             status VARCHAR(20),
-            result TEXT,
+            result_text TEXT,
+            result_image TEXT,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         );
     """)
@@ -110,7 +110,8 @@ def get_job_status(job_id):
     try:
         db_conn = get_db_connection()
         cur = db_conn.cursor()
-        cur.execute("SELECT job_id, status, result, created_at FROM jobs WHERE job_id = %s", (job_id,))
+        # Select the new columns
+        cur.execute("SELECT job_id, status, result_text, result_image, created_at FROM jobs WHERE job_id = %s", (job_id,))
         job = cur.fetchone()
         cur.close()
 
@@ -118,8 +119,9 @@ def get_job_status(job_id):
             return jsonify({
                 "job_id": job[0],
                 "status": job[1],
-                "result": job[2],
-                "created_at": job[3]
+                "result_text": job[2],
+                "result_image": job[3], # Return the image data
+                "created_at": job[4]
             })
         else:
             return jsonify({"error": "Job not found"}), 404
@@ -129,7 +131,7 @@ def get_job_status(job_id):
         return jsonify({"error": "Failed to retrieve job status"}), 500
     finally:
         if db_conn: db_conn.close()
-
+        
 if __name__ == '__main__':
     # On startup, ensure the database table exists
     setup_database()
